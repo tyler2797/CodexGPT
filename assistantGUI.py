@@ -567,4 +567,99 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     hud = TwilightHUD()
     hud.show()
-    sys.exit(app.exec_())
+     (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF' 
+diff --git a/assistantGUI.py b/assistantGUI.py
+index afa5706a20a20be38b2839765e5424c95052eaf5..859db288e468b8caf899fe85e94cf11767bc042d 100644
+--- a/assistantGUI.py
++++ b/assistantGUI.py
+@@ -546,26 +546,26 @@ class TwilightHUD(QWidget):
+                 print("[ERROR] Impossible d'initialiser OpenAI v1")
+                 return
+ 
+         prompt = f"Raconte-moi une courte histoire de style {getattr(config, 'STORY_THEME', 'fantastique')}."
+         try:
+             resp = self._oa_client.chat.completions.create(
+                 model="gpt-4o-mini",
+                 messages=[{"role": "user", "content": prompt}],
+                 temperature=0.8,
+                 max_tokens=350,
+             )
+             story = resp.choices[0].message.content
+             print("\n📖 Nouvelle histoire générée :\n", story)
+ 
+             # Parole
+             self._speak_text(story)
+ 
+         except Exception:
+             print("[ERROR] Erreur génération histoire :", traceback.format_exc())
+ 
+ 
+ if __name__ == "__main__":
+     app = QApplication(sys.argv)
+     hud = TwilightHUD()
+     hud.show()
+-     (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF' 
+diff --git a/assistantGUI.py b/assistantGUI.py
+index afa5706a20a20be38b2839765e5424c95052eaf5..859db288e468b8caf899fe85e94cf11767bc042d 100644
+--- a/assistantGUI.py
++++ b/assistantGUI.py
+@@ -546,26 +546,26 @@ class TwilightHUD(QWidget):
+                 print("[ERROR] Impossible d'initialiser OpenAI v1")
+                 return
+ 
+         prompt = f"Raconte-moi une courte histoire de style {getattr(config, 'STORY_THEME', 'fantastique')}."
+         try:
+             resp = self._oa_client.chat.completions.create(
+                 model="gpt-4o-mini",
+                 messages=[{"role": "user", "content": prompt}],
+                 temperature=0.8,
+                 max_tokens=350,
+             )
+             story = resp.choices[0].message.content
+             print("\n📖 Nouvelle histoire générée :\n", story)
+ 
+             # Parole
+             self._speak_text(story)
+ 
+         except Exception:
+             print("[ERROR] Erreur génération histoire :", traceback.format_exc())
+ 
+ 
+ if __name__ == "__main__":
+     app = QApplication(sys.argv)
+     hud = TwilightHUD()
+     hud.show()
+-    diff --git a/assistantGUI.py b/assistantGUI.py
+index afa5706a20a20be38b2839765e5424c95052eaf5..859db288e468b8caf899fe85e94cf11767bc042d 100644
+--- a/assistantGUI.py
++++ b/assistantGUI.py
+@@ -546,26 +546,26 @@ class TwilightHUD(QWidget):
+                 print("[ERROR] Impossible d'initialiser OpenAI v1")
+                 return
+ 
+         prompt = f"Raconte-moi une courte histoire de style {getattr(config, 'STORY_THEME', 'fantastique')}."
+         try:
+             resp = self._oa_client.chat.completions.create(
+                 model="gpt-4o-mini",
+                 messages=[{"role": "user", "content": prompt}],
+                 temperature=0.8,
+                 max_tokens=350,
+             )
+             story = resp.choices[0].message.content
+             print("\n📖 Nouvelle histoire générée :\n", story)
+ 
+             # Parole
+             self._speak_text(story)
+ 
+         except Exception:
+             print("[ERROR] Erreur génération histoire :", traceback.format_exc())
+ 
+ 
+ if __name__ == "__main__":
+     app = QApplication(sys.argv)
+     hud = TwilightHUD()
+     hud.show()
+     sys.exit(app.exec())
+
+  
+
