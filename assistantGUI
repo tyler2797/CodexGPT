@@ -316,117 +316,123 @@ class TwilightHUD(QWidget):
             print("[ERROR] Erreur check_alerts :", traceback.format_exc())
 
     def search_youtube(self):
-    """Recherche YouTube robuste (skip les items sans videoId)."""
-           YOUTUBE_API_KEY = "AIzaSyCJnIpH4c89v_fWMHuvK0a4bKTw37DbH0I"
-    if not YOUTUBE_API_KEY:
-        print("[ERROR] Pas de clé API YouTube dans config.py")
-        return
+        """Recherche YouTube robuste (skip les items sans videoId)."""
+        YOUTUBE_API_KEY = "AIzaSyCJnIpH4c89v_fWMHuvK0a4bKTw37DbH0I"
+        if not YOUTUBE_API_KEY:
+            print("[ERROR] Pas de clé API YouTube dans config.py")
+            return
 
-    query = self.youtube_search.text().strip()
-    if not query:
-        print("⚠ Recherche vide")
-        return
+        query = self.youtube_search.text().strip()
+        if not query:
+            print("⚠ Recherche vide")
+            return
 
-    try:
-        url = (
-            "https://www.googleapis.com/youtube/v3/search"
-            f"?part=snippet&q={requests.utils.quote(query)}"
-            f"&type=video&videoEmbeddable=true&maxResults=10"
-            f"&safeSearch=none&key={YOUTUBE_API_KEY}"
-        )
-        r = requests.get(url, timeout=8).json()
-        items = r.get("items", [])
-        self.youtube_results.clear()
-
-        kept = 0
-        skipped = 0
-
-        for it in items:
-            _id = it.get("id") or {}
-            snippet = it.get("snippet") or {}
-            kind = _id.get("kind") or it.get("kind")  # par sécurité
-            video_id = _id.get("videoId")
-
-            # On garde UNIQUEMENT les vraies vidéos avec videoId
-            if kind != "youtube#video" or not video_id:
-                skipped += 1
-                # log lisible pour debug sans casser le flow
-                title_dbg = snippet.get("title", "<sans titre>")
-                print(f"[WARN] Item ignoré (kind={kind}, videoId={video_id}) : {title_dbg}")
-                continue
-
-            title = snippet.get("title", video_id)
-            self.youtube_results.addItem(f"{title} | {video_id}")
-            kept += 1
-
-        if kept == 0:
-            print("[WARN] Aucun résultat vidéo exploitable pour cette recherche.")
-        else:
-            print(f"[DEBUG] Recherche YouTube OK : '{query}' -> {kept} vidéos (ignorés: {skipped})")
-
-    except Exception:
-        print("[ERROR] Erreur recherche YouTube :", traceback.format_exc())
-
-    def play_audio(self, item):
-    """Lecture audio YouTube blindée (formats 'safe' + fallback)."""
-    video_id = item.text().split("|")[-1].strip()
-    print(f"[DEBUG] Lecture audio pour ID: {video_id}")
-    url_watch = f"https://www.youtube.com/watch?v={video_id}"
-
-    # 1er essai : forcer formats audio HTTPS courants (m4a) + client web
-    ydl_opts_primary = {
-        "quiet": True,
-        "noplaylist": True,
-        "format": "bestaudio[ext=m4a]/bestaudio[protocol^=https]/bestaudio/best",
-        "extractor_args": {"youtube": {"player_client": ["web"]}},
-        # quelques garde-fous pour réduire le bruit
-        "nocheckcertificate": True,
-        "ignoreerrors": True,
-    }
-
-    # Fallback : laisser yt-dlp choisir le best dispo, tjrs client web
-    ydl_opts_fallback = {
-        "quiet": True,
-        "noplaylist": True,
-        "format": "bestaudio/best",
-        "extractor_args": {"youtube": {"player_client": ["web"]}},
-        "nocheckcertificate": True,
-        "ignoreerrors": True,
-    }
-
-    def _try_play(opts, label):
         try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(url_watch, download=False)
-                stream_url = None
+            url = (
+                "https://www.googleapis.com/youtube/v3/search"
+                f"?part=snippet&q={requests.utils.quote(query)}"
+                f"&type=video&videoEmbeddable=true&maxResults=10"
+                f"&safeSearch=none&key={YOUTUBE_API_KEY}"
+            )
+            try:
+                response = requests.get(url, timeout=8)
+                response.raise_for_status()
+            except requests.RequestException as e:
+                print(f"[ERROR] Requête YouTube échouée : {e}")
+                return
+            r = response.json()
+            items = r.get("items", [])
+            self.youtube_results.clear()
 
-                if isinstance(info, dict):
-                    # certains extracteurs donnent direct 'url'
-                    stream_url = info.get("url")
-                    if not stream_url:
-                        # sinon on parcourt les formats
-                        for f in (info.get("formats") or []):
-                            u = f.get("url")
-                            if u:
-                                stream_url = u
-                                break
+            kept = 0
+            skipped = 0
 
-                if stream_url:
-                    self.player.setMedia(QMediaContent(QUrl(stream_url)))
-                    self.player.play()
-                    print(f"[DEBUG] Audio lancé ({label})")
-                    return True
+            for it in items:
+                _id = it.get("id") or {}
+                snippet = it.get("snippet") or {}
+                kind = _id.get("kind") or it.get("kind")  # par sécurité
+                video_id = _id.get("videoId")
+
+                # On garde UNIQUEMENT les vraies vidéos avec videoId
+                if kind != "youtube#video" or not video_id:
+                    skipped += 1
+                    # log lisible pour debug sans casser le flow
+                    title_dbg = snippet.get("title", "<sans titre>")
+                    print(f"[WARN] Item ignoré (kind={kind}, videoId={video_id}) : {title_dbg}")
+                    continue
+
+                title = snippet.get("title", video_id)
+                self.youtube_results.addItem(f"{title} | {video_id}")
+                kept += 1
+
+            if kept == 0:
+                print("[WARN] Aucun résultat vidéo exploitable pour cette recherche.")
+            else:
+                print(f"[DEBUG] Recherche YouTube OK : '{query}' -> {kept} vidéos (ignorés: {skipped})")
 
         except Exception:
-            print(f"[WARN] Échec lecture ({label}) :", traceback.format_exc())
-        return False
+            print("[ERROR] Erreur recherche YouTube :", traceback.format_exc())
 
-    if _try_play(ydl_opts_primary, "primary"):
-        return
-    if _try_play(ydl_opts_fallback, "fallback"):
-        return
+    def play_audio(self, item):
+        """Lecture audio YouTube blindée (formats 'safe' + fallback)."""
+        video_id = item.text().split("|")[-1].strip()
+        print(f"[DEBUG] Lecture audio pour ID: {video_id}")
+        url_watch = f"https://www.youtube.com/watch?v={video_id}"
 
-    print("[ERROR] Impossible de récupérer un flux audio exploitable pour cette vidéo.")
+        # 1er essai : forcer formats audio HTTPS courants (m4a) + client web
+        ydl_opts_primary = {
+            "quiet": True,
+            "noplaylist": True,
+            "format": "bestaudio[ext=m4a]/bestaudio[protocol^=https]/bestaudio/best",
+            "extractor_args": {"youtube": {"player_client": ["web"]}},
+            # quelques garde-fous pour réduire le bruit
+            "nocheckcertificate": True,
+            "ignoreerrors": True,
+        }
+
+        # Fallback : laisser yt-dlp choisir le best dispo, tjrs client web
+        ydl_opts_fallback = {
+            "quiet": True,
+            "noplaylist": True,
+            "format": "bestaudio/best",
+            "extractor_args": {"youtube": {"player_client": ["web"]}},
+            "nocheckcertificate": True,
+            "ignoreerrors": True,
+        }
+
+        def _try_play(opts, label):
+            try:
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(url_watch, download=False)
+                    stream_url = None
+
+                    if isinstance(info, dict):
+                        # certains extracteurs donnent direct 'url'
+                        stream_url = info.get("url")
+                        if not stream_url:
+                            # sinon on parcourt les formats
+                            for f in (info.get("formats") or []):
+                                u = f.get("url")
+                                if u:
+                                    stream_url = u
+                                    break
+
+                    if stream_url:
+                        self.player.setMedia(QMediaContent(QUrl(stream_url)))
+                        self.player.play()
+                        print(f"[DEBUG] Audio lancé ({label})")
+                        return True
+
+            except Exception:
+                print(f"[WARN] Échec lecture ({label}) :", traceback.format_exc())
+            return False
+
+        if _try_play(ydl_opts_primary, "primary"):
+            return
+        if _try_play(ydl_opts_fallback, "fallback"):
+            return
+
+        print("[ERROR] Impossible de récupérer un flux audio exploitable pour cette vidéo.")
 
     # ====== SMS PROGRAMMÉS ======
     def schedule_sms(self):
