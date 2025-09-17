@@ -66,12 +66,22 @@ class ThreadSafeConsole(QObject):
 
 class EmittingStream:
     """redirige stdout/stderr vers la console Qt de manière thread-safe"""
+
     def __init__(self, ts_console: ThreadSafeConsole):
         self.ts_console = ts_console
+
     def write(self, text):
-        if text and text.strip():
-            timestamp = datetime.datetime.now().strftime("[%H:%M:%S] ")
-            self.ts_console.append_requested.emit(timestamp + text.strip())
+        if not text:
+            return
+
+        stripped = text.rstrip()
+        if not stripped:
+            return
+
+        timestamp = datetime.datetime.now().strftime("[%H:%M:%S] ")
+        for line in stripped.splitlines():
+            self.ts_console.append_requested.emit(timestamp + line)
+
     def flush(self):
         pass
 # ----------------------------------------
@@ -187,7 +197,8 @@ class TwilightHUD(QWidget):
         self.nautical_time = None
         self._last_twilight = None
         self._last_tw_fetch = None
-        self._tw_fetch_interval_sec = 60  # pas plus d’1 fetch/min
+        self._default_tw_fetch_interval_sec = 60  # pas plus d’1 fetch/min
+        self._tw_fetch_interval_sec = self._default_tw_fetch_interval_sec
         self._tw_fail_count = 0
 
         # OpenAI client v1
@@ -225,7 +236,8 @@ class TwilightHUD(QWidget):
 
     def update_times(self):
         try:
-            now = datetime.datetime.now(timezone.utc).astimezone()
+            utc_now = datetime.datetime.now(timezone.utc)
+            now = utc_now.astimezone()
             # UI tick
             self.label_time.setText(f"Heure : {now.strftime('%H:%M:%S')}")
 
@@ -234,7 +246,7 @@ class TwilightHUD(QWidget):
             if self._last_tw_fetch is None:
                 need_fetch = True
             else:
-                delta = (datetime.datetime.now() - self._last_tw_fetch).total_seconds()
+                delta = (utc_now - self._last_tw_fetch).total_seconds()
                 if delta >= self._tw_fetch_interval_sec:
                     need_fetch = True
 
@@ -258,12 +270,17 @@ class TwilightHUD(QWidget):
                         "civil_start": civil_start, "civil_end": civil_end,
                         "nautical_start": nautical_start, "nautical_end": nautical_end
                     }
-                    self._last_tw_fetch = datetime.datetime.now()
+                    fetch_completed = datetime.datetime.now(timezone.utc)
+                    self._last_tw_fetch = fetch_completed
                     self._tw_fail_count = 0  # reset ok
+                    self._tw_fetch_interval_sec = self._default_tw_fetch_interval_sec
+                    utc_now = fetch_completed
+                    now = utc_now.astimezone()
                 except Exception as e:
                     self._tw_fail_count += 1
                     # backoff léger si ça échoue souvent
-                    self._tw_fetch_interval_sec = min(300, 60 + self._tw_fail_count * 30)
+                    backoff_base = self._default_tw_fetch_interval_sec
+                    self._tw_fetch_interval_sec = min(300, backoff_base + self._tw_fail_count * 30)
                     if self._last_twilight:
                         # On garde le dernier affichage
                         print(f"[WARN] API crépuscule KO, usage du cache (échec #{self._tw_fail_count})")
@@ -309,7 +326,11 @@ class TwilightHUD(QWidget):
             if not self.nautical_time:
                 return
             remaining = self.nautical_time - datetime.datetime.now(timezone.utc).astimezone()
-            mins = int(remaining.total_seconds() / 60)
+            seconds_left = remaining.total_seconds()
+            if seconds_left <= 0:
+                return
+
+            mins = int(seconds_left // 60)
             if mins in [30, 20, 10]:
                 print(f"⚠ Attention : {mins} minutes avant le crépuscule nautique !")
         except Exception:
@@ -333,8 +354,10 @@ class TwilightHUD(QWidget):
                 f"&type=video&videoEmbeddable=true&maxResults=10"
                 f"&safeSearch=none&key={YOUTUBE_API_KEY}"
             )
-            r = requests.get(url, timeout=8).json()
-            items = r.get("items", [])
+            resp = requests.get(url, timeout=8)
+            resp.raise_for_status()
+            payload = resp.json()
+            items = payload.get("items", [])
             self.youtube_results.clear()
 
             kept = 0
@@ -363,6 +386,10 @@ class TwilightHUD(QWidget):
             else:
                 print(f"[DEBUG] Recherche YouTube OK : '{query}' -> {kept} vidéos (ignorés: {skipped})")
 
+        except requests.RequestException as exc:
+            print(f"[ERROR] Erreur HTTP YouTube : {exc}")
+        except ValueError:
+            print("[ERROR] Réponse YouTube invalide (JSON)")
         except Exception:
             print("[ERROR] Erreur recherche YouTube :", traceback.format_exc())
 
@@ -553,7 +580,21 @@ class TwilightHUD(QWidget):
                 temperature=0.8,
                 max_tokens=350,
             )
-            story = resp.choices[0].message.content
+            choices = getattr(resp, "choices", [])
+            if not choices:
+                print("[ERROR] Réponse OpenAI vide : aucune histoire générée")
+                return
+
+            message = getattr(choices[0], "message", None)
+            story = getattr(message, "content", None) if message else None
+            if not story:
+                print("[ERROR] Réponse OpenAI sans contenu exploitable")
+                return
+
+            story = story.strip()
+            if not story:
+                print("[ERROR] OpenAI a renvoyé un texte vide")
+                return
             print("\n📖 Nouvelle histoire générée :\n", story)
 
             # Parole
@@ -562,104 +603,8 @@ class TwilightHUD(QWidget):
         except Exception:
             print("[ERROR] Erreur génération histoire :", traceback.format_exc())
 
-
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     hud = TwilightHUD()
     hud.show()
-     (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF' 
-diff --git a/assistantGUI.py b/assistantGUI.py
-index afa5706a20a20be38b2839765e5424c95052eaf5..859db288e468b8caf899fe85e94cf11767bc042d 100644
---- a/assistantGUI.py
-+++ b/assistantGUI.py
-@@ -546,26 +546,26 @@ class TwilightHUD(QWidget):
-                 print("[ERROR] Impossible d'initialiser OpenAI v1")
-                 return
- 
-         prompt = f"Raconte-moi une courte histoire de style {getattr(config, 'STORY_THEME', 'fantastique')}."
-         try:
-             resp = self._oa_client.chat.completions.create(
-                 model="gpt-4o-mini",
-                 messages=[{"role": "user", "content": prompt}],
-                 temperature=0.8,
-                 max_tokens=350,
-             )
-             story = resp.choices[0].message.content
-             print("\n📖 Nouvelle histoire générée :\n", story)
- 
-             # Parole
-             self._speak_text(story)
- 
-         except Exception:
-             print("[ERROR] Erreur génération histoire :", traceback.format_exc())
- 
- 
- if __name__ == "__main__":
-     app = QApplication(sys.argv)
-     hud = TwilightHUD()
-     hud.show()
--     (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF' 
-diff --git a/assistantGUI.py b/assistantGUI.py
-index afa5706a20a20be38b2839765e5424c95052eaf5..859db288e468b8caf899fe85e94cf11767bc042d 100644
---- a/assistantGUI.py
-+++ b/assistantGUI.py
-@@ -546,26 +546,26 @@ class TwilightHUD(QWidget):
-                 print("[ERROR] Impossible d'initialiser OpenAI v1")
-                 return
- 
-         prompt = f"Raconte-moi une courte histoire de style {getattr(config, 'STORY_THEME', 'fantastique')}."
-         try:
-             resp = self._oa_client.chat.completions.create(
-                 model="gpt-4o-mini",
-                 messages=[{"role": "user", "content": prompt}],
-                 temperature=0.8,
-                 max_tokens=350,
-             )
-             story = resp.choices[0].message.content
-             print("\n📖 Nouvelle histoire générée :\n", story)
- 
-             # Parole
-             self._speak_text(story)
- 
-         except Exception:
-             print("[ERROR] Erreur génération histoire :", traceback.format_exc())
- 
- 
- if __name__ == "__main__":
-     app = QApplication(sys.argv)
-     hud = TwilightHUD()
-     hud.show()
--    diff --git a/assistantGUI.py b/assistantGUI.py
-index afa5706a20a20be38b2839765e5424c95052eaf5..859db288e468b8caf899fe85e94cf11767bc042d 100644
---- a/assistantGUI.py
-+++ b/assistantGUI.py
-@@ -546,26 +546,26 @@ class TwilightHUD(QWidget):
-                 print("[ERROR] Impossible d'initialiser OpenAI v1")
-                 return
- 
-         prompt = f"Raconte-moi une courte histoire de style {getattr(config, 'STORY_THEME', 'fantastique')}."
-         try:
-             resp = self._oa_client.chat.completions.create(
-                 model="gpt-4o-mini",
-                 messages=[{"role": "user", "content": prompt}],
-                 temperature=0.8,
-                 max_tokens=350,
-             )
-             story = resp.choices[0].message.content
-             print("\n📖 Nouvelle histoire générée :\n", story)
- 
-             # Parole
-             self._speak_text(story)
- 
-         except Exception:
-             print("[ERROR] Erreur génération histoire :", traceback.format_exc())
- 
- 
- if __name__ == "__main__":
-     app = QApplication(sys.argv)
-     hud = TwilightHUD()
-     hud.show()
-     sys.exit(app.exec())
-
-  
-
+    sys.exit(app.exec())
