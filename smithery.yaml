@@ -1,0 +1,86 @@
+# Smithery configuration file: https://smithery.ai/docs/config#smitheryyaml
+
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    required:
+      - allowedDirectory
+    properties:
+      transport:
+        type: string
+        enum: [stdio, sse, streamable-http]
+        default: stdio
+        description: MCP transport to launch. Use "sse" for Claude web deployments.
+      allowedDirectory:
+        type: string
+        description: Absolute path to the primary allowed directory (e.g. '/app').
+      additionalDirectories:
+        type: array
+        items:
+          type: string
+        description: Optional additional allowed directories.
+      addr:
+        type: string
+        description: Listen address for network transports (e.g. ':8080').
+      baseUrl:
+        type: string
+        description: Public HTTPS origin used in SSE endpoint events.
+      basePath:
+        type: string
+        description: HTTP base path prefix (default '/mcp').
+      ssePath:
+        type: string
+        description: Custom SSE endpoint segment (default '/sse').
+      messagePath:
+        type: string
+        description: Custom message endpoint segment (default '/message').
+      sseKeepAlive:
+        type: string
+        description: Interval for SSE keepalive pings (e.g. '25s').
+      shutdownTimeout:
+        type: string
+        description: Graceful shutdown timeout for network transports (default '10s').
+      useFullUrl:
+        type: boolean
+        description: Include the full base URL when advertising message endpoints (default true).
+  commandFunction: |
+    (config) => {
+      if (!config.allowedDirectory) {
+        throw new Error('allowedDirectory is required');
+      }
+
+      const args = [];
+      const transport = config.transport || 'stdio';
+      args.push('--transport', transport);
+
+      if (transport !== 'stdio') {
+        if (config.addr) args.push('--addr', config.addr);
+        if (config.basePath) args.push('--base-path', config.basePath);
+        if (config.baseUrl) args.push('--base-url', config.baseUrl);
+        if (config.ssePath) args.push('--sse-path', config.ssePath);
+        if (config.messagePath) args.push('--message-path', config.messagePath);
+        if (config.sseKeepAlive) args.push('--sse-keepalive', config.sseKeepAlive);
+        if (config.shutdownTimeout) args.push('--shutdown-timeout', config.shutdownTimeout);
+        if (typeof config.useFullUrl === 'boolean') {
+          args.push('--sse-use-full-url', String(config.useFullUrl));
+        }
+      }
+
+      args.push(config.allowedDirectory);
+
+      if (Array.isArray(config.additionalDirectories)) {
+        args.push(...config.additionalDirectories);
+      }
+
+      return { command: './server', args };
+    }
+  exampleConfig:
+    transport: sse
+    allowedDirectory: /data/projects
+    additionalDirectories:
+      - /data/docs
+    addr: :8080
+    baseUrl: https://files.example.com
+    basePath: /mcp
+    sseKeepAlive: 25s
